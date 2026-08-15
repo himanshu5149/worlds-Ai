@@ -1,0 +1,15 @@
+# Prism AI — reverse proxy (automatic HTTPS via Let's Encrypt)
+chat.example.com {
+	encode zstd gzip
+
+	# Frontend
+	reverse_proxy web:3000
+
+	# API same-origin: the frontend calls /api/* relatively
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+}

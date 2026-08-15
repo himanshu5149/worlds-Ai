@@ -1,0 +1,75 @@
+# Prism AI — local development stack
+#   docker compose up -d
+# Services: postgres+pgvector, redis, API, Celery worker, Next.js, Ollama
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: prism
+      POSTGRES_PASSWORD: prism
+      POSTGRES_DB: prism
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prism"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build: ../backend
+    env_file: ../.env
+    environment:
+      PRISM_DATABASE_URL: postgresql+asyncpg://prism:prism@postgres:5432/prism
+      PRISM_REDIS_URL: redis://redis:6379/0
+      PRISM_OLLAMA_BASE_URL: http://ollama:11434
+    ports: ["8000:8000"]
+    volumes: [uploads:/srv/prism/data/uploads]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: ../backend
+    command: celery -A app.queue.tasks.get_celery_app:app worker --loglevel=INFO -Q chat
+    env_file: ../.env
+    environment:
+      PRISM_DATABASE_URL: postgresql+asyncpg://prism:prism@postgres:5432/prism
+      PRISM_REDIS_URL: redis://redis:6379/0
+      PRISM_QUEUE_ENABLED: "true"
+    volumes: [uploads:/srv/prism/data/uploads]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+  ollama:
+    image: ollama/ollama
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+    # Uncomment for GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+volumes:
+  pgdata:
+  ollama:
+  uploads:

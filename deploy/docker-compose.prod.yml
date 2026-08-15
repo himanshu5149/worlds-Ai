@@ -1,0 +1,46 @@
+# Prism AI — production reference stack (managed services variant)
+# Postgres/Redis are assumed to be managed services (RDS/Cloud SQL, ElastiCache/Upstash).
+# TLS terminates at Caddy; object storage for uploads is wired via PRISM_STORAGE_* if used.
+
+services:
+  api:
+    build: ../backend
+    env_file: ../.env
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: ../backend
+    command: celery -A app.queue.tasks.get_celery_app:app worker --loglevel=INFO -Q chat --concurrency=4
+    env_file: ../.env
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+
+  web:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://chat.example.com
+    restart: unless-stopped
+    expose: ["3000"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
